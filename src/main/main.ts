@@ -205,6 +205,20 @@ function sendSessionEvent(event: ScrcpySessionEvent): void {
         stage: artifact.status, message: `Recording artifact indexed as ${artifact.status}.`,
         data: { artifactId: artifact.id, size: artifact.size }
       })
+      if (artifact?.status === 'available' && artifact.size > 0 &&
+          event.session.scene === 'record-only' && event.session.state === 'stopped' &&
+          event.session.stopReason === 'user') {
+        try {
+          clipboard.writeText(artifact.path)
+          shell.showItemInFolder(artifact.path)
+        } catch (error) {
+          eventStore.publish({
+            level: 'error', domain: 'artifact', action: 'recording-reveal-failed',
+            sessionId: event.session.id, stage: 'artifact-reveal',
+            message: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
     }).catch((error) => eventStore.publish({
       level: 'error', domain: 'artifact', action: 'recording-index-failed', deviceId: event.session.serialAtLaunch,
       sessionId: event.session.id, stage: 'artifact-index', message: error instanceof Error ? error.message : String(error)

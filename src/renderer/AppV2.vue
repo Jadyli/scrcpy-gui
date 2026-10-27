@@ -1569,7 +1569,7 @@ onBeforeUnmount(() => {
             <button class="ghost" :disabled="loadingDevices" @click="refreshDevices(true)">{{ t('refresh') }}</button>
             <button class="ghost" :disabled="!usableDevices.length" @click="toggleSelectAll">{{ t('selectAll') }}</button>
             <button class="ghost" :disabled="config.launch.scene !== 'otg' && !selectedSerials.length" @click="previewSelected">{{ t('previewCommand') }}</button>
-            <button class="primary" :disabled="config.launch.scene === 'record-only' ? !canStartRecording : !environment?.scrcpy.ok || config.launch.scene !== 'otg' && !selectedSerials.length" @click="launchSelected">{{ config.launch.scene === 'record-only' ? t('startRecording') : config.launch.scene === 'otg' ? t('launchOtg') : t('launchSelected') }}</button>
+            <button v-if="config.launch.scene !== 'record-only'" class="primary" :disabled="!environment?.scrcpy.ok || config.launch.scene !== 'otg' && !selectedSerials.length" @click="launchSelected">{{ config.launch.scene === 'otg' ? t('launchOtg') : t('launchSelected') }}</button>
           </div>
         </section>
 
@@ -1657,7 +1657,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="scene-builder-actions">
             <span>{{ config.launch.scene === 'otg' ? t('automaticUsbTarget') : `${t('selectedTargets')}: ${selectedSerials.length}` }}</span>
-            <div class="button-row"><button class="ghost" :disabled="config.launch.scene !== 'otg' && !selectedSerials.length" @click="previewSelected">{{ t('previewCommand') }}</button><button class="primary" :disabled="config.launch.scene === 'record-only' ? !canStartRecording : !environment?.scrcpy.ok || config.launch.scene !== 'otg' && !selectedSerials.length" @click="launchSelected">{{ config.launch.scene === 'record-only' ? t('startRecording') : config.launch.scene === 'otg' ? t('launchOtg') : t('launchSelected') }}</button></div>
+            <div class="button-row"><button class="ghost" :disabled="config.launch.scene !== 'otg' && !selectedSerials.length" @click="previewSelected">{{ t('previewCommand') }}</button><button v-if="config.launch.scene !== 'record-only'" class="primary" :disabled="!environment?.scrcpy.ok || config.launch.scene !== 'otg' && !selectedSerials.length" @click="launchSelected">{{ config.launch.scene === 'otg' ? t('launchOtg') : t('launchSelected') }}</button></div>
           </div>
         </section>
 

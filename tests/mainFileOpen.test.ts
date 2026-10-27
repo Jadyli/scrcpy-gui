@@ -3,9 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { ArtifactService } from '../src/main/artifactService'
+import type { ArtifactRecord, ScrcpySessionEvent } from '../src/shared/types'
 
 const state = vi.hoisted(() => ({
   ready: false, directory: '',
+  sessionListener: undefined as ((event: ScrcpySessionEvent) => void) | undefined,
+  writeText: vi.fn(), showItemInFolder: vi.fn(),
   appListeners: new Map<string, (...args: any[]) => any>(),
   ipcHandlers: new Map<string, (...args: any[]) => any>(),
   inputListeners: new Map<string, (...args: any[]) => any>(),
@@ -41,17 +45,18 @@ vi.mock('electron', () => ({
     isFocused() { return this.focused }
     async loadFile(path: string) { this.webContents.mainFrame.url = pathToFileURL(path).toString() }
   },
-  clipboard: {}, dialog: { showMessageBox: state.showMessageBox },
+  clipboard: { writeText: state.writeText }, dialog: { showMessageBox: state.showMessageBox },
   globalShortcut: { register: state.register },
   ipcMain: { handle: (name: string, callback: (...args: any[]) => any) => state.ipcHandlers.set(name, callback) },
   Menu: { buildFromTemplate: () => ({}) },
   nativeImage: { createFromPath: () => ({ resize: () => ({}) }) },
-  session: { defaultSession: { setPermissionRequestHandler() {} } }, shell: {},
+  session: { defaultSession: { setPermissionRequestHandler() {} } }, shell: { showItemInFolder: state.showItemInFolder },
   Tray: class { setToolTip() {} setContextMenu() {} on() {} }
 }))
 
 vi.mock('../src/main/processes', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../src/main/processes')>(), listDevices: state.listDevices
+  ...await importOriginal<typeof import('../src/main/processes')>(), listDevices: state.listDevices,
+  subscribeScrcpySessionEvents: (listener: (event: ScrcpySessionEvent) => void) => { state.sessionListener = listener; return () => {} }
 }))
 
 afterAll(async () => {
@@ -106,4 +111,53 @@ describe('main-process file opening and shortcut boundaries', () => {
     expect(window.webContents.send).toHaveBeenCalledWith('app:screenshot-shortcut', 'copy')
     expect(event.preventDefault).toHaveBeenCalledOnce()
   })
+})
+
+
+describe('stopped recording handoff', () => {
+  const artifact: ArtifactRecord = {
+    id: 'recording', kind: 'recording', status: 'available', name: 'clip.mp4',
+    path: '/tmp/recording folder/clip.mp4', size: 1024, metadata: {},
+    createdAt: '2026-10-27T00:00:00Z', updatedAt: '2026-10-27T00:00:00Z'
+  }
+  const event: ScrcpySessionEvent = {
+    type: 'state', message: 'Stopped', timestamp: '2026-10-27T00:00:00Z',
+    session: { id: 'session', serialAtLaunch: 'PHONE', scene: 'record-only', state: 'stopped',
+      stopReason: 'user', args: [], createdAt: '2026-10-27T00:00:00Z' }
+  }
+
+  it('waits for the finalized artifact before revealing and copying its exact path', async () => {
+    let finish!: (value: ArtifactRecord) => void
+    const register = vi.spyOn(ArtifactService.prototype, 'registerRecording')
+      .mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    state.writeText.mockClear()
+    state.showItemInFolder.mockClear()
+    state.sessionListener!(event)
+    expect(state.writeText).not.toHaveBeenCalled()
+    expect(state.showItemInFolder).not.toHaveBeenCalled()
+    finish(artifact)
+    await vi.waitFor(() => expect(state.showItemInFolder).toHaveBeenCalledWith(artifact.path))
+    expect(state.writeText).toHaveBeenCalledExactlyOnceWith(artifact.path)
+    register.mockRestore()
+  })
+
+  it.each(['missing', 'incomplete', 'empty', 'automatic', 'quit', 'screen', 'failed'])(
+    'does not open Finder or replace the clipboard for %s recordings', async (scenario) => {
+      const record = { ...artifact }
+      const session = { ...event.session }
+      if (scenario === 'missing' || scenario === 'incomplete') record.status = scenario
+      if (scenario === 'empty') record.size = 0
+      if (scenario === 'automatic') session.stopReason = 'process-exit'
+      if (scenario === 'quit') session.stopReason = 'app-quit'
+      if (scenario === 'screen') session.scene = 'screen'
+      if (scenario === 'failed') session.state = 'failed'
+      const register = vi.spyOn(ArtifactService.prototype, 'registerRecording').mockResolvedValue(record)
+      state.writeText.mockClear()
+      state.showItemInFolder.mockClear()
+      state.sessionListener!({ ...event, session })
+      await Promise.resolve()
+      expect(state.showItemInFolder).not.toHaveBeenCalled()
+      expect(state.writeText).not.toHaveBeenCalled()
+      register.mockRestore()
+    })
 })
